@@ -1,398 +1,102 @@
-# spring boot 整合 kafka
-## 目录<br/>
-<a href="#一kafka的相关概念">一、kafka的相关概念：</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<a href="#1主题和分区">1.主题和分区</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2分区复制">2.分区复制</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3-生产者">3. 生产者</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<a href="#4-消费者">4. 消费者</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<a href="#5broker和集群">5.broker和集群</a><br/>
-<a href="#二项目说明">二、项目说明</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#11-项目结构说明">1.1 项目结构说明</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#12-主要依赖">1.2 主要依赖</a><br/>
-<a href="#二-整合-kafka">二、 整合 kafka</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#21-kafka基本配置">2.1 kafka基本配置</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#22-KafkaTemplate实现消息发送">2.2 KafkaTemplate实现消息发送</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#23--KafkaListener注解实现消息的监听">2.3  @KafkaListener注解实现消息的监听</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#24-测试整合结果">2.4 测试整合结果</a><br/>
-<a href="#三关于多消费者组的测试">三、关于多消费者组的测试</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#31--创建多分区主题">3.1  创建多分区主题</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#32-多消费者组对同一主题的监听">3.2 多消费者组对同一主题的监听</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#32-发送消息时候指定主题的具体分区">3.2 发送消息时候指定主题的具体分区</a><br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#34-测试结果">3.4 测试结果</a><br/>
-<a href="#四序列化与反序列化">四、序列化与反序列化</a><br/>
-## 正文<br/>
+# Spring Boot 整合 Kafka
 
+这是一个 Spring Boot 2.1 示例，演示字符串消息、JSON 对象消息、指定分区发送，以及
+多个消费者组/消费者监听 Kafka 主题。项目是单 Maven 模块，不包含 Kafka 或
+ZooKeeper 的容器编排。
 
+## 技术版本
 
+- Java 8
+- Spring Boot `2.1.1.RELEASE`
+- Spring Kafka（版本由 Spring Boot 管理）
+- Maven（仓库未提供 Maven Wrapper）
 
-## 一、kafka的相关概念：
+## 功能与结构
 
-### 1.主题和分区
+| 路径 | 作用 |
+| --- | --- |
+| `Producer/KafKaCustomrProducer.java` | 使用 `KafkaTemplate` 异步发送消息并输出回调结果 |
+| `controller/SendMsgController.java` | 提供三个触发消息发送的 HTTP 接口 |
+| `consumer/KafkaSimpleConsumer.java` | 消费普通字符串消息 |
+| `consumer/KafkaBeanConsumer.java` | 将 JSON 消息反序列化为 `Programmer` |
+| `consumer/KafkaGroupConsumer.java` | 演示指定分区和多个消费者组 |
+| `config/KafkaConfig.java` | 声明 10 分区、复制因子为 2 的分组主题 |
+| `constant/Topic.java` | 定义示例使用的三个主题名 |
 
-kafka  的消息通过主题进行分类。一个主题可以被分为若干个分区，一个分区就是一个提交日志。消息以追加的方式写入分区，然后以先入先出的顺序读取。kafka通过分区来实现数据的冗余和伸缩性，分区可以分布在不同的服务器上，也就是说一个主题可以横跨多个服务器，以此来提供比单个服务器更强大的性能（类比HDFS分布式文件系统）。
+主题如下：
 
-注意：由于一个主题包含多个分区，因此无法在整个主题范围内保证消息的顺序性，**但可以保证消息在单个分区内的顺序性**。
+| 主题 | 用途 |
+| --- | --- |
+| `spring.boot.kafka.simple` | 普通字符串消息 |
+| `spring.boot.kafka.bean` | JSON 对象消息 |
+| `spring.boot.kafka.newGroup` | 指定分区和消费者组示例 |
 
-<div align="center"> <img src="https://github.com/heibaiying/spring-samples-for-all/blob/master/pictures/kafka主题和分区.png"/> </div>
+## 前置条件
 
-### 2.分区复制
+1. 安装 JDK 8 和 Maven。
+2. 准备可访问的 Kafka 集群。
+3. 修改 `src/main/resources/application.yml` 中的
+   `spring.kafka.bootstrap-servers`。仓库当前值 `192.168.3.196:9092` 是历史
+   示例地址，不是通用本机默认值。
+4. `spring.boot.kafka.newGroup` 在源码中要求 10 个分区、复制因子 2，因此自动
+   创建时至少需要 2 个 broker。单 broker 环境可先手工创建同名主题，使用 10 个
+   分区和复制因子 1；已存在的主题不会被重复创建。
 
-每个主题被分为若干个分区，每个分区有多个副本。那些副本被保存在 broker 上，每个 broker 可以保存成百上千个属于不同主题和分区的副本。副本有以下两种类型 ：
+另外两个主题依赖 broker 的自动创建设置；如果集群关闭了自动创建，请手工创建
+`spring.boot.kafka.simple` 和 `spring.boot.kafka.bean`。
 
-- 首领副本 每个分区都有一个首领副本 。 为了保证一致性，所有生产者请求和消费者请求都会经过这个副本。
-- 跟随者副本 首领以外的副本都是跟随者副本。跟随者副本不处理来自客户端的请求，它们唯一的任务就是从首领那里复制消息，保持与首领一致的状态。如果首领发生崩渍，其中的一个跟随者会被提升为新首领。
+## 构建、测试与运行
 
-### 3. 生产者
+```bash
+# 编译并执行测试
+mvn clean test
 
-- 默认情况下生产者在把消息均衡地分布到在主题的所有分区上，而并不关心特定消息会被写到那个分区；
-- 如果指定消息键，则通过对消息键的散列来实现分区；
-- 也可以通过消息键和分区器来实现把消息直接写到指定的分区，这个需要自定义分区器，需要实现Partitioner 接口，并重写其中的partition方法。
+# 打包
+mvn clean package
 
-### 4. 消费者
+# 运行
+mvn spring-boot:run
 
-消费者是**消费者群组**的一部分。也就是说，会有一个或者多个消费者共同读取一个主题，群组保证每个分区只能被一个消费者使用。
-
-**一个分区只能被同一个消费者群组里面的一个消费者读取，但可以被不同消费者群组里面的多个消费者读取。多个消费者群组可以共同读取同一个主题，彼此之间互不影响**。
-
-<div align="center"> <img src="https://github.com/heibaiying/spring-samples-for-all/blob/master/pictures/kafka消费者.png"/> </div>
-
-### 5.broker和集群
-
-一个独立的kafka服务器被称为broker。broker 接收来自生产者的消息，为消息设置偏移量，并提交消息到磁盘保存。broker为消费者提供服务，对读取分区的请求做出响应，返回已经提交到磁盘的消息。
-
-broker是集群的组成部分。每一个集群都有一个broker同时充当了集群控制器的角色（自动从集群的活跃成员中选举出来）。控制器负责管理工作，包括将分区分配给broker和监控broker。**在集群中，一个分区从属一个broker,该broker被称为分区的首领**。一个分区可以分配给多个broker,这个时候会发生分区复制。这种复制机制为分区提供了消息冗余，如果有一个broker失效，其他broker可以接管领导权。
-
-<div align="center"> <img src="https://github.com/heibaiying/spring-samples-for-all/blob/master/pictures/kafka集群复制.png"/> </div>
-
-更多kafka 的说明可以参考我的个人笔记：[《Kafka权威指南》读书笔记](https://github.com/heibaiying/LearningNotes/blob/master/notes/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/%E3%80%8AKafka%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E3%80%8B%E8%AF%BB%E4%B9%A6%E7%AC%94%E8%AE%B0.md#53-%E5%A4%8D%E5%88%B6)
-
-
-
-## 二、项目说明
-
-#### 1.1 项目结构说明
-
- 本项目提供kafka发送简单消息、对象消息、和多消费者组消费消息三种情况下的sample。
-
-1. kafkaSimpleConsumer 用于普通消息的监听；
-2. kafkaBeanConsumer 用于对象消息监听；
-3. kafkaGroupConsumer 用于多消费者组和多消费者对主题分区消息监听的情况。
-
-
-
-<div align="center"> <img src="https://github.com/heibaiying/spring-samples-for-all/blob/master/pictures/spring-boot-kafka.png"/> </div>
-
-#### 1.2 主要依赖
-
-```xml
-<dependency>
-    <groupId>org.springframework.kafka</groupId>
-    <artifactId>spring-kafka</artifactId>
-</dependency>
-<dependency>
-    <groupId>org.springframework.kafka</groupId>
-    <artifactId>spring-kafka-test</artifactId>
-    <scope>test</scope>
-</dependency>
+# 或运行打包结果
+java -jar target/spring-boot-kafka-0.0.1-SNAPSHOT.jar
 ```
 
+测试类只是 Spring 上下文测试，并未使用嵌入式 Kafka。由于应用上下文会加载 Kafka
+管理配置，执行测试和启动应用前都应提供可访问的 broker。
 
+应用监听端口由 `application.yml` 设置为 `19091`。
 
-## 二、 整合 kafka
+## 调用示例
 
-#### 2.1 kafka基本配置
+```bash
+# 发送普通字符串
+curl http://localhost:19091/sendSimple
 
-```yaml
-spring:
-  kafka:
-    # 以逗号分隔的地址列表，用于建立与Kafka集群的初始连接(kafka 默认的端口号为9092)
-    bootstrap-servers: 127.0.0.1:9092
-    producer:
-      # 发生错误后，消息重发的次数。
-      retries: 0
-      #当有多个消息需要被发送到同一个分区时，生产者会把它们放在同一个批次里。该参数指定了一个批次可以使用的内存大小，按照字节数计算。
-      batch-size: 16384
-      # 设置生产者内存缓冲区的大小。
-      buffer-memory: 33554432
-      # 键的序列化方式
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      # 值的序列化方式
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
-      # acks=0 ： 生产者在成功写入消息之前不会等待任何来自服务器的响应。
-      # acks=1 ： 只要集群的首领节点收到消息，生产者就会收到一个来自服务器成功响应。
-      # acks=all ：只有当所有参与复制的节点全部收到消息时，生产者才会收到一个来自服务器的成功响应。
-      acks: 1
-    consumer:
-      # 自动提交的时间间隔 在spring boot 2.X 版本中这里采用的是值的类型为Duration 需要符合特定的格式，如1S,1M,2H,5D
-      auto-commit-interval: 1S
-      # 该属性指定了消费者在读取一个没有偏移量的分区或者偏移量无效的情况下该作何处理：
-      # latest（默认值）在偏移量无效的情况下，消费者将从最新的记录开始读取数据（在消费者启动之后生成的记录）
-      # earliest ：在偏移量无效的情况下，消费者将从起始位置读取分区的记录
-      auto-offset-reset: earliest
-      # 是否自动提交偏移量，默认值是true,为了避免出现重复数据和数据丢失，可以把它设置为false,然后手动提交偏移量
-      enable-auto-commit: true
-      # 键的反序列化方式
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      # 值的反序列化方式
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-    listener:
-      # 在侦听器容器中运行的线程数。
-      concurrency: 5
+# 序列化 Programmer 为 JSON 后发送
+curl http://localhost:19091/sendBean
 
+# 分别向分组主题的 0、1、2、3 分区发送消息
+curl http://localhost:19091/sendGroup
 ```
 
-这里需要说明的是：
+接口用于触发发送，响应体为空；发送结果和消费结果输出在应用控制台。
 
- 在spring boot 2.X 版本 auto-commit-interval（自动提交的时间间隔）采用的是值的类型为Duration ，Duration 是 jdk 1.8 版本之后引入的类,在其源码中我们可以看到对于其字符串的表达需要符合一定的规范，即数字+单位，如下的写法1s ，1.5s， 0s， 0.001S ，1h， 2d 在yaml 中都是有效的。如果传入无效的字符串，则spring boot 在启动阶段解析配置文件的时候就会抛出异常。 
+## 消费行为
 
-```java
-public final class Duration
-        implements TemporalAmount, Comparable<Duration>, Serializable {
+- `simpleGroup` 消费普通消息主题。
+- `beanGroup` 消费对象消息主题。
+- `group1` 中的监听器显式绑定分区 0/1 或 2/3。
+- `group2` 监听整个分组主题。
+- `application.yml` 设置监听并发数为 5、自动提交 offset，并从 `earliest` 开始
+  读取没有有效 offset 的分区。
 
-    /**
-     * The pattern for parsing.
-     */
-    private static final Pattern PATTERN =
-            Pattern.compile("([-+]?)P(?:([-+]?[0-9]+)D)?" +
-                    "(T(?:([-+]?[0-9]+)H)?(?:([-+]?[0-9]+)M)?(?:([-+]?[0-9]+)(?:[.,]([0-9]{0,9}))?S)?)?", Pattern.CASE_INSENSITIVE);
-   
-    ........                 
- 
-}
-```
+`consumer1-1` 与 `consumer1-3` 被显式绑定到相同分区，因此示例中两者都可能收到
+这些分区的消息；这不是 Kafka 自动分区分配的典型同组互斥方式。
 
-#### 2.2 KafkaTemplate实现消息发送
+## 配置与运维注意事项
 
-```java
-@Component
-@Slf4j
-public class KafKaCustomrProducer {
-
-    @Autowired
-    private KafkaTemplate kafkaTemplate;
-
-    public void sendMessage(String topic, Object object) {
-
-        /*
-         * 这里的ListenableFuture类是spring对java原生Future的扩展增强,是一个泛型接口,用于监听异步方法的回调
-         * 而对于kafka send 方法返回值而言，这里的泛型所代表的实际类型就是 SendResult<K, V>,而这里K,V的泛型实际上
-         * 被用于ProducerRecord<K, V> producerRecord,即生产者发送消息的key,value 类型
-         */
-        ListenableFuture<SendResult<String, Object>> future = kafkaTemplate.send(topic, object);
-
-        future.addCallback(new ListenableFutureCallback<SendResult<String, Object>>() {
-            @Override
-            public void onFailure(Throwable throwable) {
-                log.info("发送消息失败:" + throwable.getMessage());
-            }
-
-            @Override
-            public void onSuccess(SendResult<String, Object> sendResult) {
-                System.out.println("发送结果:" + sendResult.toString());
-            }
-        });
-    }
-}
-
-```
-
-#### 2.3  @KafkaListener注解实现消息的监听
-
-```java
-@Component
-@Slf4j
-public class KafkaSimpleConsumer {
-
-    // 简单消费者
-    @KafkaListener(groupId = "simpleGroup", topics = Topic.SIMPLE)
-    public void consumer1_1(ConsumerRecord<String, Object> record, @Header(KafkaHeaders.RECEIVED_TOPIC) String topic, Consumer consumer) {
-        System.out.println("消费者收到消息:" + record.value() + "; topic:" + topic);
-        /*
-         * 如果需要手工提交异步 consumer.commitSync();
-         * 手工同步提交 consumer.commitAsync()
-         */
-    }
-}
-```
-
-#### 2.4 测试整合结果
-
-```java
-@Slf4j
-@RestController
-public class SendMsgController {
-
-    @Autowired
-    private KafKaCustomrProducer producer;
-    @Autowired
-    private KafkaTemplate kafkaTemplate;
-
-    /***
-     * 发送消息体为基本类型的消息
-     */
-    @GetMapping("sendSimple")
-    public void sendSimple() {
-        producer.sendMessage(Topic.SIMPLE, "hello spring boot kafka");
-    }
-}
-```
-
-
-
-## 三、关于多消费者组的测试
-
-#### 3.1  创建多分区主题
-
-```java
-/**
- * @author : heibaiying
- * @description : kafka配置类
- */
-@Configuration
-public class KafkaConfig {
-
-    @Bean
-    public NewTopic groupTopic() {
-        // 指定主题名称，分区数量，和复制因子
-        return new NewTopic(Topic.GROUP, 10, (short) 2);
-    }
-
-}
-```
-
-#### 3.2 多消费者组对同一主题的监听
-
-1. 消费者1-1 监听主题的 0、1 分区
-2. 消费者1-2 监听主题的 2、3 分区
-3. 消费者1-3 监听主题的 0、1 分区
-4. 消费者2-1 监听主题的所有分区
-
-```java
-/**
- * @author : heibaiying
- * @description : kafka 消费者组
- * <p>
- * 多个消费者群组可以共同读取同一个主题，彼此之间互不影响。
- */
-@Component
-@Slf4j
-public class KafkaGroupConsumer {
-
-    // 分组1 中的消费者1
-    @KafkaListener(id = "consumer1-1", groupId = "group1", topicPartitions =
-            {@TopicPartition(topic = Topic.GROUP, partitions = {"0", "1"})
-            })
-    public void consumer1_1(ConsumerRecord<String, Object> record) {
-        System.out.println("consumer1-1 收到消息:" + record.value());
-    }
-
-    // 分组1 中的消费者2
-    @KafkaListener(id = "consumer1-2", groupId = "group1", topicPartitions =
-            {@TopicPartition(topic = Topic.GROUP, partitions = {"2", "3"})
-            })
-    public void consumer1_2(ConsumerRecord<String, Object> record) {
-        System.out.println("consumer1-2 收到消息:" + record.value());
-    }
-
-    // 分组1 中的消费者3
-    @KafkaListener(id = "consumer1-3", groupId = "group1", topicPartitions =
-            {@TopicPartition(topic = Topic.GROUP, partitions = {"0", "1"})
-            })
-    public void consumer1_3(ConsumerRecord<String, Object> record) {
-        System.out.println("consumer1-3 收到消息:" + record.value());
-    }
-
-    // 分组2 中的消费者
-    @KafkaListener(id = "consumer2-1", groupId = "group2", topics = Topic.GROUP)
-    public void consumer2_1(ConsumerRecord<String, Object> record) {
-        System.err.println("consumer2-1 收到消息:" + record.value());
-    }
-}
-
-```
-
-#### 3.2 发送消息时候指定主题的具体分区
-
-```java
-/***
- * 多消费者组、组中多消费者对同一主题的消费情况
- */
-@GetMapping("sendGroup")
-public void sendGroup() {
-    for (int i = 0; i < 4; i++) {
-        // 第二个参数指定分区，第三个参数指定消息键 分区优先
-        ListenableFuture<SendResult<String, Object>> future = kafkaTemplate.send(Topic.GROUP, i % 4, "key", "hello group " + i);
-        future.addCallback(new ListenableFutureCallback<SendResult<String, Object>>() {
-            @Override
-            public void onFailure(Throwable throwable) {
-                log.info("发送消息失败:" + throwable.getMessage());
-            }
-
-            @Override
-            public void onSuccess(SendResult<String, Object> sendResult) {
-                System.out.println("发送结果:" + sendResult.toString());
-            }
-        });
-    }
-}
-```
-
-测试结果：
-
-```yaml
-# 主要看每次发送结果中的 partition 属性，代表四次消息分别发送到了主题的0,1,2,3分区
-发送结果:SendResult [producerRecord=ProducerRecord(topic=spring.boot.kafka.newGroup, partition=1, headers=RecordHeaders(headers = [], isReadOnly = true), key=key, value=hello group 1, timestamp=null), recordMetadata=spring.boot.kafka.newGroup-1@13]
-发送结果:SendResult [producerRecord=ProducerRecord(topic=spring.boot.kafka.newGroup, partition=0, headers=RecordHeaders(headers = [], isReadOnly = true), key=key, value=hello group 0, timestamp=null), recordMetadata=spring.boot.kafka.newGroup-0@19]
-发送结果:SendResult [producerRecord=ProducerRecord(topic=spring.boot.kafka.newGroup, partition=3, headers=RecordHeaders(headers = [], isReadOnly = true), key=key, value=hello group 3, timestamp=null), recordMetadata=spring.boot.kafka.newGroup-3@13]
-发送结果:SendResult [producerRecord=ProducerRecord(topic=spring.boot.kafka.newGroup, partition=2, headers=RecordHeaders(headers = [], isReadOnly = true), key=key, value=hello group 2, timestamp=null), recordMetadata=spring.boot.kafka.newGroup-2@13]
-# 消费者组2 接收情况
-consumer2-1 收到消息:hello group 1
-consumer2-1 收到消息:hello group 0
-consumer2-1 收到消息:hello group 2
-consumer2-1 收到消息:hello group 3
-# 消费者1-1接收情况
-consumer1-1 收到消息:hello group 1
-consumer1-1 收到消息:hello group 0
-# 消费者1-3接收情况
-consumer1-3 收到消息:hello group 1
-consumer1-3 收到消息:hello group 0
-# 消费者1-2接收情况
-consumer1-2 收到消息:hello group 3
-consumer1-2 收到消息:hello group 2
-```
-
-#### 3.4 测试结果
-
-1. 和kafka 原本的机制一样，多消费者组之间对于同一个主题的消费彼此之间互不影响；
-2. 和kafka原本机制不一样的是，这里我们消费者1-1和消费1-3共同属于同一个消费者组，并且监听同样的分区，按照原本kafka的机制，群组保证每个分区只能被同一个消费者组的一个消费者使用，但是按照spring的声明方式实现的消息监听，这里被两个消费者都监听到了。
-
-
-
-## 四、序列化与反序列化
-
-用例采用的是第三方fastjson将实体类序列化为json后发送。实现如下：
-
-```java
-/***
- * 发送消息体为bean的消息
- */
-@GetMapping("sendBean")
-public void sendBean() {
-    Programmer programmer = new Programmer("xiaoming", 12, 21212.33f, new Date());
-    producer.sendMessage(Topic.BEAN, JSON.toJSON(programmer).toString());
-}
-
-```
-
-```java
-@Component
-@Slf4j
-public class KafkaBeanConsumer {
-
-    @KafkaListener(groupId = "beanGroup",topics = Topic.BEAN)
-    public void consumer(ConsumerRecord<String, Object> record) {
-        System.out.println("消费者收到消息:" + JSON.parseObject(record.value().toString(), Programmer.class));
-    }
-}
-```
-
+- 生产者使用字符串序列化；对象示例由 Fastjson 先转换为 JSON 字符串。
+- 生产者 `acks=1`、`retries=0`，仅适合演示，不代表生产环境可靠性配置。
+- HTTP GET 接口会产生消息，属于演示设计，不应直接作为生产 API 约定。
+- 修改 broker 地址、主题、副本数或消费策略时，以
+  `application.yml`、`KafkaConfig.java` 和 `Topic.java` 的当前值为准。

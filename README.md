@@ -15,7 +15,7 @@ ZooKeeper 的容器编排。
 
 | 路径 | 作用 |
 | --- | --- |
-| `Producer/KafKaCustomrProducer.java` | 使用 `KafkaTemplate` 异步发送消息并输出回调结果 |
+| `producer/KafkaCustomProducer.java` | 使用具类型的 `KafkaTemplate` 异步发送消息并记录回调结果 |
 | `controller/SendMsgController.java` | 提供三个触发消息发送的 HTTP 接口 |
 | `consumer/KafkaSimpleConsumer.java` | 消费普通字符串消息 |
 | `consumer/KafkaBeanConsumer.java` | 将 JSON 消息反序列化为 `Programmer` |
@@ -35,9 +35,12 @@ ZooKeeper 的容器编排。
 
 1. 安装 JDK 8 和 Maven。
 2. 准备可访问的 Kafka 集群。
-3. 修改 `src/main/resources/application.yml` 中的
-   `spring.kafka.bootstrap-servers`。仓库当前值 `192.168.3.196:9092` 是历史
-   示例地址，不是通用本机默认值。
+3. 默认连接 `localhost:9092`。若 broker 位于其他位置，设置以逗号分隔的环境
+   变量 `KAFKA_BOOTSTRAP_SERVERS`，例如：
+
+   ```bash
+   export KAFKA_BOOTSTRAP_SERVERS=kafka-1:9092,kafka-2:9092
+   ```
 4. `spring.boot.kafka.newGroup` 在源码中要求 10 个分区、复制因子 2，因此自动
    创建时至少需要 2 个 broker。单 broker 环境可先手工创建同名主题，使用 10 个
    分区和复制因子 1；已存在的主题不会被重复创建。
@@ -61,8 +64,8 @@ mvn spring-boot:run
 java -jar target/spring-boot-kafka-0.0.1-SNAPSHOT.jar
 ```
 
-测试类只是 Spring 上下文测试，并未使用嵌入式 Kafka。由于应用上下文会加载 Kafka
-管理配置，执行测试和启动应用前都应提供可访问的 broker。
+现有自动测试验证 `Programmer` 的 Jackson JSON 往返转换，不会启动 Spring context，
+因此执行 `mvn test` 不需要 broker。启动应用和端到端消息验证仍需可访问的 Kafka。
 
 应用监听端口由 `application.yml` 设置为 `19091`。
 
@@ -95,8 +98,14 @@ curl http://localhost:19091/sendGroup
 
 ## 配置与运维注意事项
 
-- 生产者使用字符串序列化；对象示例由 Fastjson 先转换为 JSON 字符串。
+- 生产者使用字符串序列化；对象示例由 Spring Boot 内置的 Jackson 转换 JSON，
+  不另行引入 JSON parser。
 - 生产者 `acks=1`、`retries=0`，仅适合演示，不代表生产环境可靠性配置。
 - HTTP GET 接口会产生消息，属于演示设计，不应直接作为生产 API 约定。
 - 修改 broker 地址、主题、副本数或消费策略时，以
   `application.yml`、`KafkaConfig.java` 和 `Topic.java` 的当前值为准。
+
+## Repository hygiene
+
+Maven `target/`、Java `.class` 与常见 IDE metadata 均由 `.gitignore` 排除，不应
+提交。构建前后可用 `git status --short` 确认工作树只包含刻意修改的源码。

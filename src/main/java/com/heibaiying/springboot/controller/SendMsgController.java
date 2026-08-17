@@ -1,11 +1,11 @@
 package com.heibaiying.springboot.controller;
 
-import com.alibaba.fastjson.JSON;
-import com.heibaiying.springboot.Producer.KafKaCustomrProducer;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.heibaiying.springboot.bean.Programmer;
 import com.heibaiying.springboot.constant.Topic;
+import com.heibaiying.springboot.producer.KafkaCustomProducer;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.util.concurrent.ListenableFuture;
@@ -23,10 +23,17 @@ import java.util.Date;
 @RestController
 public class SendMsgController {
 
-    @Autowired
-    private KafKaCustomrProducer producer;
-    @Autowired
-    private KafkaTemplate kafkaTemplate;
+    private final KafkaCustomProducer producer;
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectMapper objectMapper;
+
+    public SendMsgController(KafkaCustomProducer producer,
+                             KafkaTemplate<String, String> kafkaTemplate,
+                             ObjectMapper objectMapper) {
+        this.producer = producer;
+        this.kafkaTemplate = kafkaTemplate;
+        this.objectMapper = objectMapper;
+    }
 
     /***
      * 发送消息体为基本类型的消息  http://127.0.0.1:8080/sendSimple
@@ -41,9 +48,9 @@ public class SendMsgController {
      * 发送消息体为bean的消息  http://127.0.0.1:8080/sendBean
      */
     @GetMapping("sendBean")
-    public void sendBean() {
+    public void sendBean() throws JsonProcessingException {
         Programmer programmer = new Programmer("xiaoming", 12, 21212.33f, new Date());
-        producer.sendMessage(Topic.BEAN, JSON.toJSON(programmer).toString());
+        producer.sendMessage(Topic.BEAN, objectMapper.writeValueAsString(programmer));
     }
 
 
@@ -53,16 +60,16 @@ public class SendMsgController {
     @GetMapping("sendGroup")
     public void sendGroup() {
         for (int i = 0; i < 4; i++) {
-            ListenableFuture<SendResult<String, Object>> future = kafkaTemplate.send(Topic.GROUP, i % 4, "key", "hello group " + i);
-            future.addCallback(new ListenableFutureCallback<SendResult<String, Object>>() {
+            ListenableFuture<SendResult<String, String>> future = kafkaTemplate.send(Topic.GROUP, i % 4, "key", "hello group " + i);
+            future.addCallback(new ListenableFutureCallback<SendResult<String, String>>() {
                 @Override
                 public void onFailure(Throwable throwable) {
-                	System.out.println("发送消息失败:" + throwable.getMessage());
+                    log.error("发送消息失败", throwable);
                 }
 
                 @Override
-                public void onSuccess(SendResult<String, Object> sendResult) {
-                    System.out.println("发送结果:" + sendResult.toString());
+                public void onSuccess(SendResult<String, String> sendResult) {
+                    log.info("发送结果: {}", sendResult);
                 }
             });
         }

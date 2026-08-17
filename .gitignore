@@ -1,0 +1,22 @@
+# Maven
+/target/
+
+# Java
+*.class
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Eclipse / Spring Tool Suite
+.classpath
+.project
+.settings/
+.springBeans
+.sts4-cache/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store

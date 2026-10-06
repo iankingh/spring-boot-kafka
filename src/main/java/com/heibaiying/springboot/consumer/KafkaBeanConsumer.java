@@ -1,6 +1,5 @@
 package com.heibaiying.springboot.consumer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.heibaiying.springboot.bean.Programmer;
 import com.heibaiying.springboot.constant.Topic;
 import lombok.extern.slf4j.Slf4j;
@@ -8,7 +7,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * @author : heibaiying
@@ -31,7 +30,7 @@ public class KafkaBeanConsumer {
                  消费者收到消息:com.heibaiying.springboot.bean.Programmer@321cf202 {"birthday":1560935191543,"name":"xiaoming","salary":21212.33,"age":12}
 	 * */
     @KafkaListener(groupId = "beanGroup", topics = Topic.BEAN)
-    public void consumer(ConsumerRecord<String, String> record) throws IOException {
+    public void consumer(ConsumerRecord<String, String> record) {
         Programmer programmer = objectMapper.readValue(record.value(), Programmer.class);
         log.info("消费者收到消息: {} {}", programmer, record.value());
     }

@@ -1,15 +1,26 @@
 # Spring Boot 整合 Kafka
 
-这是一个 Spring Boot 2.1 示例，演示字符串消息、JSON 对象消息、指定分区发送，以及
+这是一个 Spring Boot 示例，演示字符串消息、JSON 对象消息、指定分区发送，以及
 多个消费者组/消费者监听 Kafka 主题。项目是单 Maven 模块，不包含 Kafka 或
 ZooKeeper 的容器编排。
 
 ## 技术版本
 
-- Java 8
-- Spring Boot `2.1.1.RELEASE`
+- Java 17 (LTS)
+- Spring Boot `4.1.1`
 - Spring Kafka（版本由 Spring Boot 管理）
-- Maven（仓库未提供 Maven Wrapper）
+- Maven 3.6.3 或更新版本（仓库未提供 Maven Wrapper）
+
+Spring Boot 4.1.1 当前要求 Java 17 或更高，并兼容至 Java 26。项目选用共同兼容的
+Java 17 LTS 基线；Eclipse Temurin 的支持路线图列示 Java 17 LTS 仍受支持至少到
+2027 年 10 月。版本依据（查阅于 2026-10-04）：
+[Spring Boot 系统要求](https://docs.spring.io/spring-boot/system-requirements.html)
+和 [Eclipse Adoptium 支持路线图](https://adoptium.net/support/)。
+
+2026-10-05 分别以 Java `17.0.9`、`25.0.4.1` 完成 `clean package`，
+两个 tests（含真实 broker integration）均通过，CI 使用 Java 17／25 matrix。
+编译目标仍是 Java 17。JDK 23+ 默认禁用隐式 annotation processing，因此 compiler
+已显式配置现有 Boot-managed Lombok processor，未提高最低 Java 版本。
 
 ## 功能与结构
 
@@ -33,7 +44,7 @@ ZooKeeper 的容器编排。
 
 ## 前置条件
 
-1. 安装 JDK 8 和 Maven。
+1. 安装 JDK 17 和 Maven。
 2. 准备可访问的 Kafka 集群。
 3. 默认连接 `localhost:9092`。若 broker 位于其他位置，设置以逗号分隔的环境
    变量 `KAFKA_BOOTSTRAP_SERVERS`，例如：
@@ -64,8 +75,28 @@ mvn spring-boot:run
 java -jar target/spring-boot-kafka-0.0.1-SNAPSHOT.jar
 ```
 
-现有自动测试验证 `Programmer` 的 Jackson JSON 往返转换，不会启动 Spring context，
-因此执行 `mvn test` 不需要 broker。启动应用和端到端消息验证仍需可访问的 Kafka。
+`mvn test` 同时执行 Jackson JSON 单元测试与真实 producer/consumer 整合测试。
+整合测试使用已有 `spring-kafka-test` 的 Kafka testkit 启动两个 in-process KRaft
+broker 与一个 controller，固定使用 released production metadata，避免默认
+experimental metadata／多 controller quorum 导致的启动与关闭故障。
+10 个分区及复制因子 2，保留 production 的主题/复制设置；不需要 Docker、
+外部 Kafka 或 ZooKeeper。测试覆写 bootstrap address 与 listener concurrency，
+实际调用三个 HTTP controller，再等待真实 listener 收到消息。
+它验证字符串内容、真实 bean listener 成功解码、对象字段以及 0–3 分区的
+key/value 和两个消费者组（包括显式绑定相同分区的两个 listener）。
+
+```bash
+# 最小整合 gate；broker 不可启动/消费超时会失败，不会跳过
+mvn -B --no-transfer-progress -Dtest=KafkaMessagingIntegrationTest test
+
+# 完整测试与可执行 JAR gate（CI 也执行此命令）
+mvn -B --no-transfer-progress clean package
+```
+
+Surefire 报告与 embedded broker 暂存资料都位于 `target/`；broker 在 Spring
+context 关闭后停止；fixture 的 shutdown 异常会导致测试失败，而不是只记 warning。
+嵌入式测试需要允许绑定 loopback TCP ports，不验证外部
+集群的认证、网络或部署。运行应用仍需前述可访问的 Kafka 集群。
 
 应用监听端口由 `application.yml` 设置为 `19091`。
 
@@ -98,7 +129,7 @@ curl http://localhost:19091/sendGroup
 
 ## 配置与运维注意事项
 
-- 生产者使用字符串序列化；对象示例由 Spring Boot 内置的 Jackson 转换 JSON，
+- 生产者使用字符串序列化；对象示例使用 Spring Boot 管理的 Jackson 3 转换 JSON，
   不另行引入 JSON parser。
 - 生产者 `acks=1`、`retries=0`，仅适合演示，不代表生产环境可靠性配置。
 - HTTP GET 接口会产生消息，属于演示设计，不应直接作为生产 API 约定。

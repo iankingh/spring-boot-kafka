@@ -1,18 +1,17 @@
 package com.heibaiying.springboot;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.heibaiying.springboot.bean.Programmer;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.util.Date;
+import tools.jackson.databind.ObjectMapper;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class SpringBootKafkaApplicationTests {
 
     @Test
-    public void programmerJsonRoundTrip() throws IOException {
+    public void programmerJsonRoundTrip() {
         ObjectMapper objectMapper = new ObjectMapper();
         Programmer expected = new Programmer("xiaoming", 12, 21212.33f, new Date(1560935191543L));
 

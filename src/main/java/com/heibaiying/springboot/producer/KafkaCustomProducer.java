@@ -4,8 +4,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
-import org.springframework.util.concurrent.ListenableFuture;
-import org.springframework.util.concurrent.ListenableFutureCallback;
 
 /**
  * Kafka producer used by the demo endpoints.
@@ -21,16 +19,10 @@ public class KafkaCustomProducer {
     }
 
     public void sendMessage(String topic, String message) {
-        ListenableFuture<SendResult<String, String>> future = kafkaTemplate.send(topic, message);
-
-        future.addCallback(new ListenableFutureCallback<SendResult<String, String>>() {
-            @Override
-            public void onFailure(Throwable throwable) {
+        kafkaTemplate.send(topic, message).whenComplete((sendResult, throwable) -> {
+            if (throwable != null) {
                 log.error("Failed to send message to topic {}", topic, throwable);
-            }
-
-            @Override
-            public void onSuccess(SendResult<String, String> sendResult) {
+            } else {
                 log.info("Message sent to topic {}: {}", topic, sendResult);
             }
         });

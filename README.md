@@ -13,11 +13,16 @@ ZooKeeper 的容器编排。
 
 Spring Boot 4.1.1 当前要求 Java 17 或更高，并兼容至 Java 26。项目选用共同兼容的
 Java 17 LTS 基线；Eclipse Temurin 的支持路线图列示 Java 17 LTS 仍受支持至少到
-2027 年 10 月。版本依据（查阅于 2026-10-04）：
+2027 年 10 月。版本依据（查阅于 2026-10-07）：Maven Central 中 Spring Boot
+最新稳定版为 4.1.1；4.2.0 仍为 milestone 预览版，因此不升级到预览版本。
+Spring Kafka `4.1.1` 与 Kafka clients `4.2.1` 由 Spring Boot BOM 管理；Kafka
+clients `4.2.1` 是兼容该 BOM 的稳定版本（4.3.1 虽已发布，但不绕过 BOM 单独升级）。
+Maven 插件同样沿用该 BOM／parent 管理版本。对 BOM 管理的 Boot、Spring Kafka 和
+Kafka clients 版本查询 OSV 未发现已知 advisories；这不是对整个依赖树的完整安全审计。
 [Spring Boot 系统要求](https://docs.spring.io/spring-boot/system-requirements.html)
 和 [Eclipse Adoptium 支持路线图](https://adoptium.net/support/)。
 
-2026-10-05 分别以 Java `17.0.9`、`25.0.4.1` 完成 `clean package`，
+2026-10-07 分别以 Java `17.0.9`、`25.0.4.1` 完成 `clean package`，
 两个 tests（含真实 broker integration）均通过，CI 使用 Java 17／25 matrix。
 编译目标仍是 Java 17。JDK 23+ 默认禁用隐式 annotation processing，因此 compiler
 已显式配置现有 Boot-managed Lombok processor，未提高最低 Java 版本。
@@ -131,7 +136,12 @@ curl http://localhost:19091/sendGroup
 
 - 生产者使用字符串序列化；对象示例使用 Spring Boot 管理的 Jackson 3 转换 JSON，
   不另行引入 JSON parser。
-- 生产者 `acks=1`、`retries=0`，仅适合演示，不代表生产环境可靠性配置。
+- 生产者 `acks=1`、`retries=0`：broker leader 确认写入后即视为成功，不等待副本确认，
+  且 producer 不重试。异步发送失败只记录日志，HTTP 接口不等待或返回发送结果；
+  因此接口返回成功不保证消息已可靠保存，leader 故障也可能造成消息丢失。
+- 消费者启用周期性自动提交 offset（间隔 1 秒），listener 处理与 offset 提交不是原子操作：
+  故障可能导致尚未处理的记录被跳过，也可能造成已处理记录重复消费。此示例没有实现
+  手动提交、事务或 exactly-once 语义，不应视为可靠投递配置。
 - HTTP GET 接口会产生消息，属于演示设计，不应直接作为生产 API 约定。
 - 修改 broker 地址、主题、副本数或消费策略时，以
   `application.yml`、`KafkaConfig.java` 和 `Topic.java` 的当前值为准。
